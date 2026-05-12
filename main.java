@@ -1,53 +1,34 @@
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Scanner; // Import Scanner untuk input pengguna
+import java.util.*;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 
 // ==========================================
-// CLASS: User
+// MODELS (Data Layer)
 // ==========================================
+
 class User {
     private int id;
     private String username;
     private String password;
-    private boolean isLoggedIn;
 
     public User(int id, String username, String password) {
         this.id = id;
         this.username = username;
         this.password = password;
-        this.isLoggedIn = false;
     }
 
     public int getId() {
         return id;
     }
 
-    public boolean login(String inputUsername, String inputPassword) {
-        if (this.username.equals(inputUsername) && this.password.equals(inputPassword)) {
-            this.isLoggedIn = true;
-            return true;
-        }
-        return false;
-    }
-
-    public void logout() {
-        this.isLoggedIn = false;
+    public boolean authenticate(String user, String pass) {
+        return this.username.equals(user) && this.password.equals(pass);
     }
 }
 
-// ==========================================
-// CLASS: Product
-// ==========================================
 class Product {
-    // Menggunakan static Map sebagai simulasi tabel database 'PRODUCTS'
-    public static Map<Integer, Product> dbProducts = new HashMap<>();
-
     private int id;
     private String nama;
     private double harga;
@@ -60,44 +41,32 @@ class Product {
         this.stok = stok;
     }
 
-    // Getters
-    public int getId() { return id; }
-    public String getNama() { return nama; }
-    public double getHarga() { return harga; }
-    public int getStok() { return stok; }
-
-    // Fitur 1: Tambah Produk
-    public static boolean tambahProduk(Product product) {
-        if (!dbProducts.containsKey(product.getId())) {
-            dbProducts.put(product.getId(), product);
-            return true;
-        }
-        return false;
+    public int getId() {
+        return id;
     }
 
-    // Fitur 2: Ubah Produk
-    public static boolean ubahProduk(int idProduct, String namaBaru, double hargaBaru, int stokBaru) {
-        if (dbProducts.containsKey(idProduct)) {
-            Product prod = dbProducts.get(idProduct);
-            if (namaBaru != null && !namaBaru.isEmpty()) prod.nama = namaBaru;
-            if (hargaBaru >= 0) prod.harga = hargaBaru;
-            if (stokBaru >= 0) prod.stok = stokBaru;
-            return true;
-        }
-        return false;
+    public String getNama() {
+        return nama;
     }
 
-    // Fitur 3: Hapus Produk
-    public static boolean hapusProduk(int idProduct) {
-        if (dbProducts.containsKey(idProduct)) {
-            dbProducts.remove(idProduct);
-            return true;
-        }
-        return false;
+    public double getHarga() {
+        return harga;
     }
 
-    // Metode pendukung untuk pesanan
-    public boolean kurangiStok(int qty) {
+    public int getStok() {
+        return stok;
+    }
+
+    public void update(String nama, double harga, int stok) {
+        if (nama != null && !nama.isEmpty())
+            this.nama = nama;
+        if (harga >= 0)
+            this.harga = harga;
+        if (stok >= 0)
+            this.stok = stok;
+    }
+
+    public boolean reduceStock(int qty) {
         if (this.stok >= qty) {
             this.stok -= qty;
             return true;
@@ -106,269 +75,254 @@ class Product {
     }
 }
 
-// ==========================================
-// CLASS: Order
-// ==========================================
 class Order {
-    // Menggunakan static List sebagai simulasi tabel database 'ORDERS'
-    public static List<Order> dbOrders = new ArrayList<>();
-
     private int id;
-    private int userId;
-    private int productId;
+    private String productName;
     private int qty;
     private double totalHarga;
-    private String tanggalPesanan;
+    private String timestamp;
 
-    public Order(int id, int userId, int productId, int qty, double totalHarga) {
+    public Order(int id, String productName, int qty, double total) {
         this.id = id;
-        this.userId = userId;
-        this.productId = productId;
+        this.productName = productName;
         this.qty = qty;
-        this.totalHarga = totalHarga;
-        
-        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");  
-        this.tanggalPesanan = dtf.format(LocalDateTime.now());
+        this.totalHarga = total;
+        this.timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
     }
 
-    // Fitur 4: Buat Pesanan
-    public static Order buatPesanan(int userId, int productId, int qty) {
-        // Cek apakah produk ada di database
-        if (Product.dbProducts.containsKey(productId)) {
-            Product prod = Product.dbProducts.get(productId);
-            
-            // Coba kurangi stok
-            if (prod.kurangiStok(qty)) {
-                // Jika stok cukup, hitung harga dan buat pesanan
-                double total = prod.getHarga() * qty;
-                int newId = dbOrders.size() + 1;
-                Order newOrder = new Order(newId, userId, productId, qty, total);
-                
-                dbOrders.add(newOrder);
-                return newOrder;
-            } else {
-                System.out.println("[GAGAL] Stok tidak mencukupi untuk " + prod.getNama());
-            }
-        } else {
-            System.out.println("[GAGAL] Produk dengan ID " + productId + " tidak ditemukan.");
+    public double getTotalHarga() {
+        return totalHarga;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Item: %-18s | Qty: %-3d | Total: %-15s | Waktu: %s",
+                productName, qty, Main.formatRupiah(totalHarga), timestamp);
+    }
+}
+
+// ==========================================
+// SERVICE (Business Logic Layer)
+// ==========================================
+
+class StoreManager {
+    private Map<Integer, Product> products = new HashMap<>();
+    private List<Order> orders = new ArrayList<>();
+
+    public void seedInitialData() {
+        addProduct(new Product(101, "Laptop ASUS", 10000000, 10));
+        addProduct(new Product(102, "Mouse Wireless", 150000, 25));
+    }
+
+    public boolean addProduct(Product p) {
+        if (products.containsKey(p.getId()))
+            return false;
+        products.put(p.getId(), p);
+        return true;
+    }
+
+    public Product getProduct(int id) {
+        return products.get(id);
+    }
+
+    public boolean deleteProduct(int id) {
+        return products.remove(id) != null;
+    }
+
+    public Collection<Product> getAllProducts() {
+        return products.values();
+    }
+
+    public List<Order> getOrders() {
+        return orders;
+    }
+
+    public Order createOrder(int userId, int productId, int qty) {
+        Product p = products.get(productId);
+        if (p != null && p.reduceStock(qty)) {
+            Order newOrder = new Order(orders.size() + 1, p.getNama(), qty, p.getHarga() * qty);
+            orders.add(newOrder);
+            return newOrder;
         }
         return null;
     }
 
-    // Fitur 5 (Bagian 1): Lihat Semua Pesanan
-    public static List<Order> lihatSemuaPesanan() {
-        return dbOrders;
+    public double calculateTotalRevenue() {
+        return orders.stream().mapToDouble(Order::getTotalHarga).sum();
     }
-
-    // Fitur 5 (Bagian 2): Hitung Total Pendapatan
-    public static double hitungTotalPendapatan() {
-        double total = 0;
-        for (Order order : dbOrders) {
-            total += order.totalHarga;
-        }
-        return total;
-    }
-
-    // Getters untuk keperluan pelaporan
-    public int getProductId() { return productId; }
-    public int getQty() { return qty; }
-    public double getTotalHarga() { return totalHarga; }
-    public String getTanggalPesanan() { return tanggalPesanan; }
 }
 
 // ==========================================
-// MAIN CLASS (CONTROLLER / SIMULATOR)
+// VIEW / UI (Presentation Layer)
 // ==========================================
+
 public class Main {
-    // Helper method untuk format uang ke Rupiah
+    private static final Scanner scanner = new Scanner(System.in);
+    private static final StoreManager store = new StoreManager();
+
+    public static void main(String[] args) {
+        store.seedInitialData();
+        User admin = new User(1, "admin", "1234");
+
+        System.out.println("=============================================");
+        System.out.println("      SISTEM MANAJEMEN TOKO ONLINE           ");
+        System.out.println("=============================================");
+
+        loginFlow(admin);
+        mainMenuFlow(admin);
+
+        scanner.close();
+    }
+
+    private static void loginFlow(User admin) {
+        while (true) {
+            System.out.println("\n--- SILAKAN LOGIN ---");
+            System.out.print("Username : ");
+            String u = scanner.nextLine();
+            System.out.print("Password : ");
+            String p = scanner.nextLine();
+
+            if (admin.authenticate(u, p)) {
+                System.out.println("[SUKSES] Selamat datang, Admin!");
+                break;
+            }
+            System.out.println("[GAGAL] Login salah, coba lagi.");
+        }
+    }
+
+    private static void mainMenuFlow(User admin) {
+        boolean running = true;
+        while (running) {
+            printMenuHeader();
+            int choice = readInt("Pilih aksi (1-7): ");
+            System.out.println();
+
+            switch (choice) {
+                case 1 -> addProductAction();
+                case 2 -> updateProductAction();
+                case 3 -> deleteProductAction();
+                case 4 -> placeOrderAction(admin);
+                case 5 -> showSalesReport();
+                case 6 -> showInventory();
+                case 7 -> {
+                    System.out.println("Keluar... Terima kasih!");
+                    running = false;
+                }
+                default -> System.out.println("[!] Pilihan tidak tersedia.");
+            }
+        }
+    }
+
+    private static void printMenuHeader() {
+        System.out.println("\n" + "=".repeat(33));
+        System.out.println("           MENU UTAMA            ");
+        System.out.println("=".repeat(33));
+        System.out.println("1. Tambah | 2. Ubah    | 3. Hapus");
+        System.out.println("4. Pesan  | 5. Laporan | 6. Stok");
+        System.out.println("7. Keluar");
+    }
+
+    // --- ACTIONS ---
+
+    private static void addProductAction() {
+        int id = readInt("Masukkan ID Produk: ");
+        System.out.print("Nama Produk       : ");
+        String nama = scanner.nextLine();
+        double harga = readDouble("Harga Produk      : ");
+        int stok = readInt("Jumlah Stok       : ");
+
+        if (store.addProduct(new Product(id, nama, harga, stok)))
+            System.out.println("[SUKSES] Produk ditambahkan.");
+        else
+            System.out.println("[GAGAL] ID sudah ada.");
+    }
+
+    private static void updateProductAction() {
+        while (true) {
+            int id = readInt("Masukkan ID Produk yang diubah (0 untuk batal): ");
+            if (id == 0)
+                break;
+
+            Product p = store.getProduct(id);
+            if (p != null) {
+                System.out.println("Mengubah: " + p.getNama());
+                System.out.print("Nama Baru  : ");
+                String nama = scanner.nextLine();
+                double harga = readDouble("Harga Baru : ");
+                int stok = readInt("Stok Baru  : ");
+                p.update(nama, harga, stok);
+                System.out.println("[SUKSES] Produk diperbarui.");
+                break;
+            }
+            System.out.println("[GAGAL] ID tidak ditemukan.");
+        }
+    }
+
+    private static void deleteProductAction() {
+        int id = readInt("ID Produk yang dihapus: ");
+        if (store.deleteProduct(id))
+            System.out.println("[SUKSES] Produk dihapus.");
+        else
+            System.out.println("[GAGAL] ID tidak ditemukan.");
+    }
+
+    private static void placeOrderAction(User admin) {
+        int pid = readInt("ID Produk yang dibeli: ");
+        int qty = readInt("Jumlah (Qty)         : ");
+
+        if (store.createOrder(admin.getId(), pid, qty) != null)
+            System.out.println("[SUKSES] Pesanan dibuat.");
+        else
+            System.out.println("[GAGAL] Stok tidak cukup atau ID salah.");
+    }
+
+    private static void showSalesReport() {
+        List<Order> orders = store.getOrders();
+        if (orders.isEmpty()) {
+            System.out.println("Belum ada transaksi.");
+        } else {
+            orders.forEach(System.out::println);
+            System.out.println("\n>> TOTAL PENDAPATAN: " + formatRupiah(store.calculateTotalRevenue()));
+        }
+    }
+
+    private static void showInventory() {
+        Collection<Product> prods = store.getAllProducts();
+        if (prods.isEmpty()) {
+            System.out.println("Gudang kosong.");
+        } else {
+            prods.forEach(p -> System.out.printf("ID: %-4d | %-15s | %-12s | Stok: %d\n",
+                    p.getId(), p.getNama(), formatRupiah(p.getHarga()), p.getStok()));
+        }
+    }
+
+    // --- UTILS ---
+
     public static String formatRupiah(double nominal) {
         DecimalFormatSymbols symbols = new DecimalFormatSymbols();
         symbols.setGroupingSeparator('.');
-        DecimalFormat df = new DecimalFormat("###,###", symbols);
-        return "Rp. " + df.format(nominal);
+        return "Rp. " + new DecimalFormat("###,###", symbols).format(nominal);
     }
 
-    public static void main(String[] args) {
-        Scanner scanner = new Scanner(System.in);
-        
-        System.out.println("=============================================");
-        System.out.println("  SIMULASI TOKO ONLINE INTERAKTIF (JAVA)     ");
-        System.out.println("=============================================\n");
-
-        // 1. Inisialisasi User & Data Awal (Opsional, agar tidak kosong)
-        User admin = new User(1, "admin", "1234");
-        Product.tambahProduk(new Product(101, "Laptop ASUS", 10000000, 10));
-        Product.tambahProduk(new Product(102, "Mouse Wireless", 150000, 25));
-
-        // [WAJIB] Modul Autentikasi: Login loop
-        boolean isLogin = false;
-        while (!isLogin) {
-            System.out.println("--- MENU LOGIN ---");
-            System.out.print("Username : ");
-            String uname = scanner.nextLine();
-            System.out.print("Password : ");
-            String pass = scanner.nextLine();
-
-            if (admin.login(uname, pass)) {
-                isLogin = true;
-                System.out.println("\n[BERHASIL] Selamat datang, Admin!\n");
-            } else {
-                System.out.println("[GAGAL] Username atau Password salah. Silakan coba lagi.\n");
-            }
-        }
-
-        // Loop Menu Utama
-        boolean running = true;
-        while (running) {
-            System.out.println("=================================");
-            System.out.println("          MENU UTAMA             ");
-            System.out.println("=================================");
-            System.out.println("1. Tambah Produk");
-            System.out.println("2. Ubah Produk");
-            System.out.println("3. Hapus Produk");
-            System.out.println("4. Buat Pesanan");
-            System.out.println("5. Lihat Laporan Penjualan");
-            System.out.println("6. Lihat Daftar Produk Saat Ini");
-            System.out.println("7. Keluar");
-            System.out.print("Pilih aksi (1-7): ");
-            
-            int pilihan = -1;
+    private static int readInt(String prompt) {
+        while (true) {
             try {
-                pilihan = Integer.parseInt(scanner.nextLine());
-            } catch (NumberFormatException e) {
-                System.out.println("Masukan tidak valid. Harap masukkan angka.");
-                continue;
+                System.out.print(prompt);
+                return Integer.parseInt(scanner.nextLine());
+            } catch (Exception e) {
+                System.out.println("[!] Harus angka.");
             }
-
-            System.out.println(); // spasi
-            switch (pilihan) {
-                case 1: // Tambah Produk
-                    System.out.println("--- 1. TAMBAH PRODUK ---");
-                    System.out.print("Masukkan ID Produk  : ");
-                    int idT = Integer.parseInt(scanner.nextLine());
-                    System.out.print("Masukkan Nama       : ");
-                    String namaT = scanner.nextLine();
-                    System.out.print("Masukkan Harga      : ");
-                    double hargaT = Double.parseDouble(scanner.nextLine());
-                    System.out.print("Masukkan Stok       : ");
-                    int stokT = Integer.parseInt(scanner.nextLine());
-                    
-                    if (Product.tambahProduk(new Product(idT, namaT, hargaT, stokT))) {
-                        System.out.println("[SUKSES] Produk berhasil ditambahkan!");
-                    } else {
-                        System.out.println("[GAGAL] Produk dengan ID tersebut sudah ada.");
-                    }
-                    break;
-
-                case 2: // Ubah Produk
-                    System.out.println("--- 2. UBAH PRODUK ---");
-                    int idU = -1;
-                    while (true) {
-                        System.out.print("Masukkan ID Produk yang diubah (ketik 0 untuk batal): ");
-                        try {
-                            idU = Integer.parseInt(scanner.nextLine());
-                        } catch (NumberFormatException e) {
-                            System.out.println("[GAGAL] Masukan harus berupa angka.");
-                            continue;
-                        }
-
-                        if (idU == 0) break;
-
-                        if (Product.dbProducts.containsKey(idU)) {
-                            Product pSaatIni = Product.dbProducts.get(idU);
-                            System.out.println("INFO: Sedang mengubah produk [" + pSaatIni.getNama() + "]");
-                            break; 
-                        } else {
-                            System.out.println("[GAGAL] Produk dengan ID " + idU + " tidak ditemukan.");
-                            System.out.println("INFO: Silakan periksa daftar produk di menu nomor 6 untuk melihat ID yang tersedia.");
-                        }
-                    }
-
-                    if (idU == 0) {
-                        System.out.println("Perubahan produk dibatalkan.");
-                        break;
-                    }
-
-                    System.out.print("Masukkan Nama Baru             : ");
-                    String namaU = scanner.nextLine();
-                    System.out.print("Masukkan Harga Baru            : ");
-                    double hargaU = Double.parseDouble(scanner.nextLine());
-                    System.out.print("Masukkan Stok Baru             : ");
-                    int stokU = Integer.parseInt(scanner.nextLine());
-
-                    if (Product.ubahProduk(idU, namaU, hargaU, stokU)) {
-                        System.out.println("[SUKSES] Produk berhasil diubah!");
-                    } else {
-                        System.out.println("[GAGAL] Terjadi kesalahan saat mengubah produk.");
-                    }
-                    break;
-
-                case 3: // Hapus Produk
-                    System.out.println("--- 3. HAPUS PRODUK ---");
-                    System.out.print("Masukkan ID Produk yang dihapus: ");
-                    int idH = Integer.parseInt(scanner.nextLine());
-                    
-                    if (Product.hapusProduk(idH)) {
-                        System.out.println("[SUKSES] Produk berhasil dihapus!");
-                    } else {
-                        System.out.println("[GAGAL] Produk tidak ditemukan.");
-                    }
-                    break;
-
-                case 4: // Buat Pesanan
-                    System.out.println("--- 4. BUAT PESANAN ---");
-                    System.out.print("Masukkan ID Produk yang dibeli: ");
-                    int idP = Integer.parseInt(scanner.nextLine());
-                    System.out.print("Masukkan Jumlah (Qty)         : ");
-                    int qtyP = Integer.parseInt(scanner.nextLine());
-
-                    Order pesananBaru = Order.buatPesanan(admin.getId(), idP, qtyP);
-                    if (pesananBaru != null) {
-                        System.out.println("[SUKSES] Pesanan berhasil dibuat! Stok otomatis berkurang.");
-                    }
-                    break;
-
-                case 5: // Lihat Laporan Penjualan
-                    System.out.println("--- 5. LAPORAN PENJUALAN ---");
-                    List<Order> daftarPesanan = Order.lihatSemuaPesanan();
-                    if (daftarPesanan.isEmpty()) {
-                        System.out.println("Belum ada transaksi.");
-                    } else {
-                        int index = 1;
-                        for (Order p : daftarPesanan) {
-                            String namaProd = Product.dbProducts.containsKey(p.getProductId()) ? 
-                                              Product.dbProducts.get(p.getProductId()).getNama() : "Produk Dihapus";
-                            System.out.println("Trx-" + index + " | Item: " + namaProd + " | Qty: " + p.getQty() + " | Total: " + formatRupiah(p.getTotalHarga()) + " | Waktu: " + p.getTanggalPesanan());
-                            index++;
-                        }
-                        double totalPendapatan = Order.hitungTotalPendapatan();
-                        System.out.println("\n>> TOTAL PENDAPATAN TOKO: " + formatRupiah(totalPendapatan));
-                    }
-                    break;
-
-                case 6: // Lihat Data Produk (Tambahan agar mudah dicek)
-                    System.out.println("--- 6. DAFTAR PRODUK SAAT INI ---");
-                    if (Product.dbProducts.isEmpty()) {
-                        System.out.println("Belum ada produk.");
-                    } else {
-                        for (Product p : Product.dbProducts.values()) {
-                            System.out.println("ID: " + p.getId() + " | Nama: " + p.getNama() + " | Harga: " + formatRupiah(p.getHarga()) + " | Stok: " + p.getStok());
-                        }
-                    }
-                    break;
-
-                case 7: // Keluar
-                    System.out.println("Keluar dari program. Terima kasih!");
-                    running = false;
-                    break;
-
-                default:
-                    System.out.println("Pilihan tidak valid. Silakan pilih 1-7.");
-                    break;
-            }
-            System.out.println();
         }
-        
-        scanner.close();
+    }
+
+    private static double readDouble(String prompt) {
+        while (true) {
+            try {
+                System.out.print(prompt);
+                return Double.parseDouble(scanner.nextLine());
+            } catch (Exception e) {
+                System.out.println("[!] Harus angka.");
+            }
+        }
     }
 }
