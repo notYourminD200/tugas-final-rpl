@@ -310,7 +310,7 @@ public class Main {
                 System.out.print(prompt);
                 return Integer.parseInt(scanner.nextLine());
             } catch (Exception e) {
-                System.out.println("[!] Harus angka.");
+                System.out.println("Masukan tidak valid. Harap masukkan angka.");
             }
         }
     }
@@ -321,7 +321,7 @@ public class Main {
                 System.out.print(prompt);
                 return Double.parseDouble(scanner.nextLine());
             } catch (Exception e) {
-                System.out.println("[!] Harus angka.");
+                System.out.println("Masukan tidak valid. Harap masukkan angka.");
             }
         }
     }
